@@ -79,11 +79,22 @@ CONTRACT_START()
         print("\n");
       }
 
+    // vAccount (name, balance, homebaseclubname)
+    // club (clubname, createdat, managername, streetaddress, city, state, country, openinghours)
+    // machine (machinename, createdat, ownername, clubname, serialnumber)
+    // payments (autoincrementid, membername, createdat, quantity, approvalstatus)
+    // group (groupname, createdat, description, meetingtimes)
+    // machinehighscore (machinename, createdat, playername, machinestate, highscore)
+    // playerhighscore  (playername, createdat, machinename, machinestate, highscore)
 
-
+    ////////////////////
+    // vAccount
+    ////////////////////
       TABLE account {
+        //  name username;
          extended_asset balance;
-         uint64_t primary_key()const { return balance.contract.value; }
+        //  name clubname; // homebase clubname, the default club this user chose
+         uint64_t /*name*/ primary_key() const { return balance.contract.value; } // username; }
       };
 
       typedef dapp::multi_index<"vaccounts"_n, account> cold_accounts_t;
@@ -95,6 +106,43 @@ CONTRACT_START()
       };
       typedef eosio::multi_index<"vaccounts"_n, shardbucket> cold_accounts_t_abi;
 
+    ////////////////////
+    // club (clubname, createdat, managername, streetaddress, city, state, country, openinghours)
+    ////////////////////
+      TABLE club {
+         name clubname;
+         uint64_t createdat;
+         name managername;
+         string streetaddress;
+         string city;
+         string state;
+         string country;
+         string openinghours;
+         name primary_key() const { return clubname; }
+      };
+
+      typedef dapp::multi_index<"vclub"_n, club> club_t;
+      typedef eosio::multi_index<".vclub"_n, club> club_t_v_abi;
+      TABLE shardclubbucket {
+          std::vector<char> shard_uri;
+          uint64_t shard;
+          uint64_t primary_key() const { return shard; }
+      };
+      typedef eosio::multi_index<"vclub"_n, shardclubbucket> club_t_abi;
+
+    //  [[eosio::action]] void clubcreate( name owner, extended_asset value){
+    //        cold_accounts_t to_acnts( _self, owner.value );
+    //        auto to = to_acnts.find( value.contract.value );
+    //        if( to == to_acnts.end() ) {
+    //           to_acnts.emplace(_self, [&]( auto& a ){
+    //             a.balance = value;
+    //           });
+    //        } else {
+    //           to_acnts.modify( *to, eosio::same_payer, [&]( auto& a ) {
+    //             a.balance += value;
+    //           });
+    //        }
+    //   }
 
      [[eosio::action]] void withdraw( name to, name token_contract){
 
