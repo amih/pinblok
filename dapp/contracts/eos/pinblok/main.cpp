@@ -23,7 +23,6 @@
 using std::string;
 CONTRACT_START()
 
-
       TABLE stat {
           uint64_t   counter = 0;
       };
@@ -375,4 +374,5 @@ CONTRACT_START()
 
     VACCOUNTS_APPLY(((dummy_action_hello)(hello))((dummy_action_hello)(hello2)))
 
-CONTRACT_END((clubupsert)(clubdelete)(machineupser)(machinedelet)(withdraw)(hello)(hello2)(regaccount)(testschedule))
+// CONTRACT_END((clubupsert)(clubdelete)(machineupser)(machinedelet)(withdraw)(hello)(hello2)(regaccount)(testschedule))
+CONTRACT_END((clubupsert)(clubdelete)(machineupser)(machinedelet)(withdraw)(regaccount)(testschedule))
