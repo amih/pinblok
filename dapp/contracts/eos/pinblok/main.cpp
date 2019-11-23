@@ -85,8 +85,8 @@ CONTRACT_START()
     // machine (machinename, createdat, ownername, clubname, serialnumber)
     // payments (autoincrementid, membername, createdat, quantity, approvalstatus)
     // group (groupname, createdat, description, meetingtimes)
-    // machinehighscore (machinename, createdat, playername, machinestate, highscore)
-    // playerhighscore  (playername, createdat, machinename, machinestate, highscore)
+    // hiscmach (machinename, createdat, playername,  machinestate, highscore)
+    // hiscuser (playername,  createdat, machinename, machinestate, highscore)
 
     ////////////////////
     // vAccount
@@ -170,6 +170,60 @@ CONTRACT_START()
             club_iterator  = clubtable.erase(club_iterator);
         }
     }
+    ////////////////////
+    // machine (machinename, createdat, ownername, clubname, serialnumber)
+    ////////////////////
+    TABLE machine {
+        name machinename;
+        uint64_t createdat;
+        name ownername;
+        name clubname;
+        string serialnumber;
+
+        uint64_t primary_key() const { return machinename.value; }
+    };
+
+    typedef dapp::multi_index<"vmachine"_n, machine> machine_t;
+    typedef eosio::multi_index<".vmachine"_n, machine> machine_t_v_abi;
+    TABLE shardmachinebucket {
+        std::vector<char> shard_uri;
+        uint64_t shard;
+        uint64_t primary_key() const { return shard; }
+    };
+    typedef eosio::multi_index<"vmachine"_n, shardmachinebucket> machine_t_abi;
+
+    [[eosio::action]] void machineupser( name   p_machinename
+                                       , name   p_ownername
+                                       , name   p_clubname
+                                       , string p_serialnumber
+                                      ){
+        machine_t machinetable( _self, _self.value );
+        auto machine_iterator =  machinetable.find(p_machinename.value);
+        if (machine_iterator == machinetable.end()) {
+            machine_iterator  = machinetable.emplace(_self,  [&](auto& new_machine) {
+                new_machine.machinename = p_machinename;
+                new_machine.ownername   = p_ownername;
+                new_machine.clubname    = p_clubname;
+                new_machine.serialnumber= p_serialnumber;
+            });
+        } else {// else... modify? (UPSERT?)
+            machinetable.modify( machine_iterator, /*eosio::same_payer*/_self, [&]( auto& edit_machine ) {
+                edit_machine.machinename = p_machinename;
+                edit_machine.ownername   = p_ownername;
+                edit_machine.clubname    = p_clubname;
+                edit_machine.serialnumber= p_serialnumber;
+            });
+        }
+    }
+    [[eosio::action]] void machinedelet( name   p_machinename ){
+        machine_t machinetable( _self, _self.value );
+        auto machine_iterator =  machinetable.find(p_machinename.value);
+        if (machine_iterator !=  machinetable.end()) {
+            machine_iterator  =  machinetable.erase(machine_iterator);
+        }
+    }
+
+
     // cleos wallet import
     // 5KMJLwnj9MwNDNYuuqBjP1eoVuCuqvHy8D5dhA3WFHpQVseaPyv (for testing only...)
     // cleos -u http://localhost:13015 push action pinblok clubupsert '["ourclub","joshtheman", "Main street 1200 East :)","Tel Aviv","IL","Israel","24x7 except for Shabbath"]' -p pinblok@active
@@ -212,38 +266,38 @@ CONTRACT_START()
         if(memo == "seed transfer")
             return;
         if (memo.size() > 0){
-          name to_act = name(memo.c_str());
-          eosio::check(is_account(to_act), "The account name supplied is not valid");
-          require_recipient(to_act);
-          from = to_act;
+            name to_act = name(memo.c_str());
+            eosio::check(is_account(to_act), "The account name supplied is not valid");
+            require_recipient(to_act);
+            from = to_act;
         }
         extended_asset received(quantity, get_first_receiver());
         add_cold_balance(from, received);
-     }
+    }
 
-   private:
-      extended_asset sub_all_cold_balance( name owner, name token_contract){
-           cold_accounts_t from_acnts( _self, owner.value );
-           const auto& from = from_acnts.get( token_contract.value, "no balance object found" );
-           auto res = from.balance;
-           from_acnts.erase( from );
-           return res;
-      }
+    private:
+    extended_asset sub_all_cold_balance( name owner, name token_contract){
+        cold_accounts_t from_acnts( _self, owner.value );
+        const auto& from = from_acnts.get( token_contract.value, "no balance object found" );
+        auto res = from.balance;
+        from_acnts.erase( from );
+        return res;
+    }
 
-      void add_cold_balance( name owner, extended_asset value){
-           cold_accounts_t to_acnts( _self, owner.value );
-           auto to = to_acnts.find( value.contract.value );
-           if( to == to_acnts.end() ) {
-              to_acnts.emplace(_self, [&]( auto& a ){
-                a.balance = value;
-              });
-           } else {
-              to_acnts.modify( *to, eosio::same_payer, [&]( auto& a ) {
-                a.balance += value;
-              });
-           }
-      }
+    void add_cold_balance( name owner, extended_asset value){
+        cold_accounts_t to_acnts( _self, owner.value );
+        auto to = to_acnts.find( value.contract.value );
+        if( to == to_acnts.end() ) {
+            to_acnts.emplace(_self, [&]( auto& a ){
+            a.balance = value;
+            });
+        } else {
+            to_acnts.modify( *to, eosio::same_payer, [&]( auto& a ) {
+            a.balance += value;
+            });
+        }
+    }
 
     VACCOUNTS_APPLY(((dummy_action_hello)(hello))((dummy_action_hello)(hello2)))
 
-CONTRACT_END((clubupsert)(clubdelete)(withdraw)(hello)(hello2)(regaccount)(testschedule))
+CONTRACT_END((clubupsert)(clubdelete)(machineupser)(machinedelet)(withdraw)(hello)(hello2)(regaccount)(testschedule))
