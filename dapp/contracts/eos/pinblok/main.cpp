@@ -6,7 +6,7 @@
 #include "../dappservices/readfn.hpp"
 #include "../dappservices/vcpu.hpp"
 #include "../dappservices/multi_index.hpp"
-// #include "../print.h"
+#include <eosio/system.hpp>
 
 #define DAPPSERVICES_ACTIONS() \
   XSIGNAL_DAPPSERVICE_ACTION \
@@ -83,7 +83,7 @@ CONTRACT_START()
     // vAccount (name, balance, homebaseclubname)
     // club (clubname, createdat, managername, streetaddress, city, state, country, openinghours)
     // machine (machinename, createdat, ownername, clubname, serialnumber)
-    // payments (autoincrementid, membername, createdat, quantity, approvalstatus)
+    // payment (autoincrementid, membername, createdat, quantity, approvalstatus)
     // group (groupname, createdat, description, meetingtimes)
     // hiscmach (machinename, createdat, playername,  machinestate, highscore)
     // hiscuser (playername,  createdat, machinename, machinestate, highscore)
@@ -112,7 +112,7 @@ CONTRACT_START()
     ////////////////////
     TABLE club {
         name clubname;
-        uint64_t createdat;
+        time_point_sec createdat;
         name managername;
         string streetaddress;
         string city;
@@ -132,7 +132,7 @@ CONTRACT_START()
     };
     typedef eosio::multi_index<"vclub"_n, shardclubbucket> club_t_abi;
 
-    [[eosio::action]] void clubupsert( name   p_clubname
+    [[eosio::action]] void clubupsert(  name   p_clubname
                                       , name   p_managername
                                       , string p_streetaddress
                                       , string p_city
@@ -140,11 +140,17 @@ CONTRACT_START()
                                       , string p_country
                                       , string p_openinghours
                                       ){
+        check(p_streetaddress.length() < 170, "streetaddress longer than maximum allowed (170)");
+        check(p_city         .length() < 100, "city longer than maximum allowed (100)");
+        check(p_state        .length() < 100, "state longer than maximum allowed (100)");
+        check(p_country      .length() < 100, "country longer than maximum allowed (100)");
+        check(p_openinghours .length() < 100, "openinghours longer than maximum allowed (100)");
         club_t clubtable( _self, _self.value );
         auto club_iterator =  clubtable.find(p_clubname.value);
         if (club_iterator == clubtable.end()) {
             club_iterator  = clubtable.emplace(_self,  [&](auto& new_club) {
                 new_club.clubname      = p_clubname;
+                new_club.createdat     = current_time_point_sec();
                 new_club.managername   = p_managername;
                 new_club.streetaddress = p_streetaddress;
                 new_club.city          = p_city;
@@ -163,6 +169,11 @@ CONTRACT_START()
             });
         }
     }
+    // cleos -u http://localhost:13015  push action pinblok clubupsert '["myclub","joshtheman", "street address","city56789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890zzzzzzzzzzzzzxxxxxxxxxxxxxxxxxxxccccccccccccccccc", "state", "country", "24x7"]' -p pinblok@active
+    // Error 3050003: eosio_assert_message assertion failure
+    // Error Details:
+    // assertion failure with message: city longer than maximum allowed (100)
+    // pending console output: 
     [[eosio::action]] void clubdelete( name   p_clubname ){
         club_t clubtable( _self, _self.value );
         auto club_iterator =  clubtable.find(p_clubname.value);
@@ -175,7 +186,7 @@ CONTRACT_START()
     ////////////////////
     TABLE machine {
         name machinename;
-        uint64_t createdat;
+        time_point_sec createdat;
         name ownername;
         name clubname;
         string serialnumber;
@@ -202,6 +213,7 @@ CONTRACT_START()
         if (machine_iterator == machinetable.end()) {
             machine_iterator  = machinetable.emplace(_self,  [&](auto& new_machine) {
                 new_machine.machinename = p_machinename;
+                new_machine.createdat   = current_time_point_sec();
                 new_machine.ownername   = p_ownername;
                 new_machine.clubname    = p_clubname;
                 new_machine.serialnumber= p_serialnumber;
@@ -222,6 +234,69 @@ CONTRACT_START()
             machine_iterator  =  machinetable.erase(machine_iterator);
         }
     }
+    ////////////////////
+    // payment (autoincrementid, membername, createdat, quantity, approvalstatus)
+    ////////////////////
+    time_point_sec current_time_point_sec() {
+       return time_point_sec(current_time_point());
+    }
+    TABLE payment {
+        uint64_t autoincrementid;
+        time_point_sec createdat;
+        name membername;
+        asset quantity;
+        bool approvalstatus;
+
+        uint64_t primary_key() const { return autoincrementid; }
+    };
+
+    typedef dapp::multi_index<"vpayment"_n, payment> payment_t;
+    typedef eosio::multi_index<".vpayment"_n, payment> payment_t_v_abi;
+    TABLE shardpaymentbucket {
+        std::vector<char> shard_uri;
+        uint64_t shard;
+        uint64_t primary_key() const { return shard; }
+    };
+    typedef eosio::multi_index<"vpayment"_n, shardpaymentbucket> payment_t_abi;
+
+    [[eosio::action]] void paymentinser( name   p_membername
+                                       , asset  p_quantity
+                                       , bool   p_approvalstatus
+                                      ){
+        payment_t paymenttable( _self, _self.value );
+        auto payment_iterator = paymenttable.emplace(_self,  [&](auto& new_payment) {
+            new_payment.autoincrementid = paymenttable.available_primary_key();
+            new_payment.createdat       = current_time_point_sec();
+            new_payment.membername      = p_membername;
+            new_payment.quantity        = p_quantity;
+            new_payment.approvalstatus  = p_approvalstatus;
+        });
+    }
+    [[eosio::action]] void paymentupdat( uint64_t p_id
+                                       , name   p_membername
+                                       , asset  p_quantity
+                                       , bool   p_approvalstatus
+                                      ){
+        payment_t paymenttable( _self, _self.value );
+        auto payment_iterator =  paymenttable.find(p_id);
+        check(payment_iterator == paymenttable.end(), "payment not found!");
+        paymenttable.modify( payment_iterator, /*eosio::same_payer*/_self, [&]( auto& edit_payment ) {
+            edit_payment.membername     = p_membername;
+            edit_payment.quantity       = p_quantity;
+            edit_payment.approvalstatus = p_approvalstatus;
+        });
+    }
+    [[eosio::action]] void paymentdelet( uint64_t p_id ){
+        payment_t paymenttable( _self, _self.value );
+        auto payment_iterator =  paymenttable.find(p_id);
+        if (payment_iterator !=  paymenttable.end()) {
+            payment_iterator  =  paymenttable.erase(payment_iterator);
+        }
+    }
+
+    // group (groupname, createdat, description, meetingtimes)
+    // hiscmach (machinename, createdat, playername,  machinestate, highscore)
+    // hiscuser (playername,  createdat, machinename, machinestate, highscore)
 
 
     // cleos wallet import
