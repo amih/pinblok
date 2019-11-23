@@ -9,6 +9,11 @@
             "date": 1574450652714,
             "name": "logs/pprovider2-cron-dapp-service-node-2019-11-22.log",
             "hash": "68862f449d89f56f07c49814321c1e2f"
+        },
+        {
+            "date": 1574490561504,
+            "name": "logs/pprovider2-cron-dapp-service-node-2019-11-23.log",
+            "hash": "a7e33803093a1f739954549f05bc9bce"
         }
     ]
 }

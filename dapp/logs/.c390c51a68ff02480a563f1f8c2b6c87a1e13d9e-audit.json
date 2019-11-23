@@ -9,6 +9,11 @@
             "date": 1574450692398,
             "name": "logs/pprovider1-oracle-dapp-service-node-2019-11-22.log",
             "hash": "50789f76be3e592692177d2ac2c5082d"
+        },
+        {
+            "date": 1574490592407,
+            "name": "logs/pprovider1-oracle-dapp-service-node-2019-11-23.log",
+            "hash": "0c1d9d198bfcbcca2cd003e8f15e562d"
         }
     ]
 }
