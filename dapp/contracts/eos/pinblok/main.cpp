@@ -23,9 +23,10 @@
 using std::string;
 CONTRACT_START()
 
-      TABLE stat {
-          uint64_t   counter = 0;
-      };
+    time_point_sec current_time_point_sec() { return time_point_sec(current_time_point()); }
+    TABLE stat {
+        uint64_t   counter = 0;
+    };
 
     typedef eosio::singleton<"stat"_n, stat> stats_def;
     bool timer_callback(name timer, std::vector<char> payload, uint32_t seconds){
@@ -139,6 +140,8 @@ CONTRACT_START()
                                       , string p_country
                                       , string p_openinghours
                                       ){
+        // example integrity checks, protect the contract from flood attacks and keep real RAM usage at a reasonable level.
+        // need to verify foreign key, member - manager
         check(p_streetaddress.length() < 170, "streetaddress longer than maximum allowed (170)");
         check(p_city         .length() < 100, "city longer than maximum allowed (100)");
         check(p_state        .length() < 100, "state longer than maximum allowed (100)");
@@ -168,6 +171,7 @@ CONTRACT_START()
             });
         }
     }
+    // testing that the smart contract protects from strings being too long:
     // cleos -u http://localhost:13015  push action pinblok clubupsert '["myclub","joshtheman", "street address","city56789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890zzzzzzzzzzzzzxxxxxxxxxxxxxxxxxxxccccccccccccccccc", "state", "country", "24x7"]' -p pinblok@active
     // Error 3050003: eosio_assert_message assertion failure
     // Error Details:
@@ -207,6 +211,8 @@ CONTRACT_START()
                                        , name   p_clubname
                                        , string p_serialnumber
                                       ){
+        // TODO: need to verify that the owner exists in the vAccounts table as a valid user. Also, check the club name in the vclub table.
+        // need to verify foreign key, member, club...
         machine_t machinetable( _self, _self.value );
         auto machine_iterator =  machinetable.find(p_machinename.value);
         if (machine_iterator == machinetable.end()) {
@@ -236,9 +242,6 @@ CONTRACT_START()
     ////////////////////
     // payment (autoincrementid, membername, createdat, quantity, approvalstatus)
     ////////////////////
-    time_point_sec current_time_point_sec() {
-       return time_point_sec(current_time_point());
-    }
     TABLE payment {
         uint64_t autoincrementid;
         time_point_sec createdat;
@@ -263,6 +266,11 @@ CONTRACT_START()
                                        , bool   p_approvalstatus
                                       ){
         payment_t paymenttable( _self, _self.value );
+        // TODO: will be called from payment notification to the business account on the main net.
+        // check contract+asset type and accept only from predetermined list.
+        // Approval status will be managed by admin / business owner.
+        //
+        // need to verify foreign key, member
         auto payment_iterator = paymenttable.emplace(_self,  [&](auto& new_payment) {
             new_payment.autoincrementid = paymenttable.available_primary_key();
             new_payment.createdat       = current_time_point_sec();
@@ -293,11 +301,145 @@ CONTRACT_START()
         }
     }
 
+    ////////////////////
     // group (groupname, createdat, description, meetingtimes)
+    ////////////////////
+    TABLE group {
+        name groupname;
+        time_point_sec createdat;
+        string description;
+        string meetingtimes;
+
+        uint64_t primary_key() const { return groupname.value; }
+    };
+
+    typedef dapp::multi_index<"vgroup"_n, group> group_t;
+    typedef eosio::multi_index<".vgroup"_n, group> group_t_v_abi;
+    TABLE shardgroupbucket {
+        std::vector<char> shard_uri;
+        uint64_t shard;
+        uint64_t primary_key() const { return shard; }
+    };
+    typedef eosio::multi_index<"vgroup"_n, shardgroupbucket> machine_t_abi;
+
+    [[eosio::action]] void groupupser( name   p_groupname
+                                     , string p_description
+                                     , string p_meetingtimes
+                                    ){
+        group_t grouptable( _self, _self.value );
+        auto group_iterator =  grouptable.find(p_groupname.value);
+        if (group_iterator == grouptable.end()) {
+            group_iterator  = grouptable.emplace(_self,  [&](auto& new_group) {
+                new_group.groupname = p_groupname;
+                new_group.createdat   = current_time_point_sec();
+                new_group.description = p_description;
+                new_group.meetingtimes= p_meetingtimes;
+            });
+        } else {// else... modify? (UPSERT?)
+            grouptable.modify( group_iterator, /*eosio::same_payer*/_self, [&]( auto& edit_group ) {
+                edit_group.groupname = p_groupname;
+                edit_group.description = p_description;
+                edit_group.meetingtimes= p_meetingtimes;
+            });
+        }
+    }
+    [[eosio::action]] void groupdelet( name   p_groupname ){
+        group_t grouptable( _self, _self.value );
+        auto group_iterator =  grouptable.find(p_groupname.value);
+        if (group_iterator !=  grouptable.end()) {
+            group_iterator  =  grouptable.erase(group_iterator);
+        }
+    }
+
+    ////////////////////
     // hiscmach (machinename, createdat, playername,  machinestate, highscore)
     // hiscuser (playername,  createdat, machinename, machinestate, highscore)
+    ////////////////////
+    // since vRAM doesn't support multi-index, just primary index, we will use 2 vRAM tables.
+    // we want to be able to fetch the high score by machine and by user, thus the names: HIgh_SCore_by_MACHine (hiscmach) and HIgh_SCore_by_USER (hiscuser).
+    // they will be linked 1-to-1 and have a common UPSERT and DELETE actions, to keep them in sync.
+    TABLE hiscmach {
+        name hiscmachname;
+        time_point_sec createdat;
+        name ownername;
+        name clubname;
+        string serialnumber;
 
+        uint64_t primary_key() const { return hiscmachname.value; }
+    };
 
+    typedef dapp::multi_index<"vhiscmach"_n, hiscmach> hiscmach_t;
+    typedef eosio::multi_index<".vhiscmach"_n, hiscmach> hiscmach_t_v_abi;
+    TABLE shardhiscmachbucket {
+        std::vector<char> shard_uri;
+        uint64_t shard;
+        uint64_t primary_key() const { return shard; }
+    };
+    typedef eosio::multi_index<"vhiscmach"_n, shardhiscmachbucket> hiscmach_t_abi;
+    // ---------------------------------
+        TABLE hiscuser {
+        name hiscusername;
+        time_point_sec createdat;
+        name ownername;
+        name clubname;
+        string serialnumber;
+
+        uint64_t primary_key() const { return hiscusername.value; }
+    };
+
+    typedef dapp::multi_index<"vhiscuser"_n, hiscuser> hiscuser_t;
+    typedef eosio::multi_index<".vhiscuser"_n, hiscuser> hiscuser_t_v_abi;
+    TABLE shardhiscuserbucket {
+        std::vector<char> shard_uri;
+        uint64_t shard;
+        uint64_t primary_key() const { return shard; }
+    };
+    typedef eosio::multi_index<"vhiscuser"_n, shardhiscuserbucket> hiscuser_t_abi;
+
+    [[eosio::action]] void hiscupser( name   p_hiscname
+                                       , name   p_ownername
+                                       , name   p_clubname
+                                       , string p_serialnumber
+                                      ){
+        // TODO: need to verify that the owner exists in the vAccounts table as a valid user. Also, check the club name in the vclub table.
+        // need to verify foreign key, member, club...
+        hiscuser_t hisctable( _self, _self.value );
+        hiscmach_t hisctable( _self, _self.value );
+        auto hiscmach_iterator =  hiscmachtable.find(p_hiscname.value);
+        auto hiscuser_iterator =  hiscusertable.find(p_hiscname.value);
+        if (hiscmach_iterator == hiscmachtable.end()) {
+            hiscmach_iterator  = hiscmachtable.emplace(_self,  [&](auto& new_hisc) {
+                // TODO: need to keep hiscmach in sync with hiscuser.
+                new_hisc.hiscname = p_hiscname;
+                new_hisc.createdat   = current_time_point_sec();
+                new_hisc.ownername   = p_ownername;
+                new_hisc.clubname    = p_clubname;
+                new_hisc.serialnumber= p_serialnumber;
+            });
+        } else {// else... modify? (UPSERT?)
+            hisctable.modify( hisc_iterator, /*eosio::same_payer*/_self, [&]( auto& edit_hisc ) {
+                edit_hisc.hiscname = p_hiscname;
+                edit_hisc.ownername   = p_ownername;
+                edit_hisc.clubname    = p_clubname;
+                edit_hisc.serialnumber= p_serialnumber;
+            });
+        }
+    }
+    [[eosio::action]] void hiscdelet( name   p_hiscname ){
+        // TODO: find by user and machine and datetime? or just auto-increment uint64?
+        hiscmach_t hiscmachtable( _self, _self.value );
+        hiscuser_t hiscusesrtable( _self, _self.value );
+        auto hiscmach_iterator =  hiscmachtable.find(p_hiscname.value);
+        auto hiscuser_iterator =  hiscusertable.find(p_hiscname.value);
+        if (hiscmach_iterator !=  hiscmachtable.end()) {
+            hiscmach_iterator  =  hiscmachtable.erase(hisc_iterator);
+        }
+        if (hiscuser_iterator !=  hiscusertable.end()) {
+            hiscuser_iterator  =  hiscusertable.erase(hisc_iterator);
+        }
+    }
+
+    // Example interaction with this contract's tables using cleos and zeus to update different tables and check their content.
     // cleos wallet import
     // 5KMJLwnj9MwNDNYuuqBjP1eoVuCuqvHy8D5dhA3WFHpQVseaPyv (for testing only...)
     // cleos -u http://localhost:13015 push action pinblok clubupsert '["ourclub","joshtheman", "Main street 1200 East :)","Tel Aviv","IL","Israel","24x7 except for Shabbath"]' -p pinblok@active
